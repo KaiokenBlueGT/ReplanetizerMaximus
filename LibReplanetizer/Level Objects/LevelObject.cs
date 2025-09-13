@@ -49,7 +49,8 @@ namespace LibReplanetizer.LevelObjects
             modelMatrix = mat;
         }
 
-        public void Translate(Vector3 vector)
+        // Make these methods virtual so CollisionObject can override them
+        public virtual void Translate(Vector3 vector)
         {
             position += vector;
             UpdateTransformMatrix();
@@ -60,7 +61,7 @@ namespace LibReplanetizer.LevelObjects
             Translate(new Vector3(x, y, z));
         }
 
-        public void Rotate(Vector3 vector)
+        public virtual void Rotate(Vector3 vector)
         {
             rotation *= Quaternion.FromEulerAngles(vector);
             UpdateTransformMatrix();
@@ -71,7 +72,7 @@ namespace LibReplanetizer.LevelObjects
             Rotate(new Vector3(x, y, z));
         }
 
-        public void Scale(Vector3 scale)
+        public virtual void Scale(Vector3 scale)
         {
             this.scale *= scale;
             UpdateTransformMatrix();

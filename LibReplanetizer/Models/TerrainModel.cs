@@ -32,6 +32,7 @@ namespace LibReplanetizer.Models
         {
             id = GetIDAssigned();
             size = 1.0f;
+            primitiveType = PrimitiveType.Triangles; // Always triangles for terrain
 
             int offset = num * 0x30;
             int texturePointer = ReadInt(tfragBlock, offset + 0x10);

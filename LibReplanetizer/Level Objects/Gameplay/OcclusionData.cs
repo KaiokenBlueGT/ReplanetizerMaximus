@@ -25,26 +25,13 @@ namespace LibReplanetizer.LevelObjects
             shrubData = new List<KeyValuePair<int, int>>();
 
             int offset = 0;
-            for (int i = 0; i < head.mobyCount; i++)
-            {
-                mobyData.Add(new KeyValuePair<int, int>(BitConverter.ToInt32(occlusionBlock, (i * 0x08) + 0x00), BitConverter.ToInt32(occlusionBlock, (i * 0x08) + 0x04)));
-            }
-
+            ReadPairs(occlusionBlock, offset, head.mobyCount, mobyData);
             offset += head.mobyCount * 0x08;
 
-            for (int i = 0; i < head.tieCount; i++)
-            {
-                tieData.Add(new KeyValuePair<int, int>(BitConverter.ToInt32(occlusionBlock, offset + (i * 0x08) + 0x00), BitConverter.ToInt32(occlusionBlock, offset + (i * 0x08) + 0x04)));
-            }
-
+            ReadPairs(occlusionBlock, offset, head.tieCount, tieData);
             offset += head.tieCount * 0x08;
 
-            for (int i = 0; i < head.shrubCount; i++)
-            {
-                shrubData.Add(new KeyValuePair<int, int>(BitConverter.ToInt32(occlusionBlock, offset + (i * 0x08) + 0x00), BitConverter.ToInt32(occlusionBlock, offset + (i * 0x08) + 0x04)));
-            }
-
-
+            ReadPairs(occlusionBlock, offset, head.shrubCount, shrubData);
         }
 
         public byte[] ToByteArray()
@@ -54,26 +41,32 @@ namespace LibReplanetizer.LevelObjects
             WriteInt(bytes, 0x04, tieData.Count);
             WriteInt(bytes, 0x08, shrubData.Count);
 
-            int offset = 0;
-            for (int i = 0; i < mobyData.Count; i++)
-            {
-                BitConverter.GetBytes(mobyData[i].Key).CopyTo(bytes, 0x10 + i * 0x08);
-                BitConverter.GetBytes(mobyData[i].Value).CopyTo(bytes, 0x14 + i * 0x08);
-            }
-            offset += mobyData.Count * 0x08;
-            for (int i = 0; i < tieData.Count; i++)
-            {
-                BitConverter.GetBytes(tieData[i].Key).CopyTo(bytes, 0x10 + offset + i * 0x08);
-                BitConverter.GetBytes(tieData[i].Value).CopyTo(bytes, 0x14 + offset + i * 0x08);
-            }
-            offset += tieData.Count * 0x08;
-            for (int i = 0; i < shrubData.Count; i++)
-            {
-                BitConverter.GetBytes(shrubData[i].Key).CopyTo(bytes, 0x10 + offset + i * 0x08);
-                BitConverter.GetBytes(shrubData[i].Value).CopyTo(bytes, 0x14 + offset + i * 0x08);
-            }
+            int offset = 0x10;
+            offset += WritePairs(bytes, offset, mobyData);
+            offset += WritePairs(bytes, offset, tieData);
+            WritePairs(bytes, offset, shrubData);
 
             return bytes;
+        }
+
+        private static void ReadPairs(byte[] block, int start, int count, List<KeyValuePair<int, int>> dest)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                dest.Add(new KeyValuePair<int, int>(
+                    ReadInt(block, start + i * 0x08 + 0x00),
+                    ReadInt(block, start + i * 0x08 + 0x04)));
+            }
+        }
+
+        private static int WritePairs(byte[] dest, int start, List<KeyValuePair<int, int>> source)
+        {
+            for (int i = 0; i < source.Count; i++)
+            {
+                WriteInt(dest, start + i * 0x08 + 0x00, source[i].Key);
+                WriteInt(dest, start + i * 0x08 + 0x04, source[i].Value);
+            }
+            return source.Count * 0x08;
         }
     }
 }

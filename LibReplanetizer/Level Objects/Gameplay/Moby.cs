@@ -21,6 +21,9 @@ namespace LibReplanetizer.LevelObjects
 
         private static int MAX_ID = 0;
 
+        [Category("Attributes"), DisplayName("Game Format")]
+        public GameType Game => game;
+
         [Category("Attributes"), DisplayName("Ingame Memory"), Description("This field contains the current variable state if the memory hook is active.")]
         public IngameMobyMemory? memory { get; set; } = null;
 
@@ -175,6 +178,8 @@ namespace LibReplanetizer.LevelObjects
         [Category("Attributes"), DisplayName("Rooted Distance")]
         public float rootedDistance { get; set; }
 
+        // Pointer to a moby class header describing update callbacks
+        // (see <see cref="Rc1MobyClassHeader"/> and <see cref="GcMobyClassHeader"/>).
         [Category("Unknowns"), DisplayName("aUnknown 6")]
         public int unk6 { get; set; }
 
@@ -293,7 +298,7 @@ namespace LibReplanetizer.LevelObjects
             this.unk7A = referenceMoby.unk7A;
             this.unk8A = referenceMoby.unk8A;
             this.unk9 = referenceMoby.unk9;
-            this.unk12A = referenceMoby.unk8A;
+            this.unk12A = referenceMoby.unk12A;
 
             UpdateTransformMatrix();
         }
@@ -688,45 +693,45 @@ namespace LibReplanetizer.LevelObjects
 
         public class IngameMobyMemory
         {
-            public Vector4 collPos { get; set; }
-            public Vector4 position { get; set; }
-            public byte state { get; set; }
-            public byte group { get; set; }
-            public byte mClass { get; set; }
-            public byte alpha { get; set; }
-            public uint pClass { get; set; }
-            public uint pChain { get; set; }
-            public float scale { get; set; }
-            public byte updateDistance { get; set; }
-            public byte visible { get; set; }
-            public short drawDistance { get; set; }
-            public ushort modeBits { get; set; }
-            public ushort unk36 { get; set; }
-            public Rgb24 color { get; set; }
-            public int light { get; set; }
-            public Vector4 rotation { get; set; }
-            public byte previousAnimationFrame { get; set; }
-            public byte animationFrame { get; set; }
-            public byte previousAnimationID { get; set; }
-            public byte animationID { get; set; }
-            public float animationBlend { get; set; }
-            public float unk58 { get; set; }
-            public float frameSpeed { get; set; }
-            public uint pAnimationLayers { get; set; }
-            public uint pPreviousAnimationData { get; set; }
-            public uint pCurrentAnimationData { get; set; }
-            public uint pUpdate { get; set; }
-            public uint pVars { get; set; }
-            public byte unk7C { get; set; }
-            public byte unk7D { get; set; }
-            public byte unk7E { get; set; }
-            public byte shadow { get; set; }
-            public uint unk80 { get; set; }
-            public int unk84 { get; set; }
-            public int unk88 { get; set; }
-            public ushort oClass { get; set; }
-            public ushort UID { get; set; }
-            public Matrix3x4 transformation { get; set; }
+            [Category("Collision"), DisplayName("Collision Position")] public Vector4 collPos { get; set; }
+            [Category("Transform"), DisplayName("World Position")] public Vector4 position { get; set; }
+            [Category("Flags"), DisplayName("State")] public byte state { get; set; }
+            [Category("Attributes"), DisplayName("Group")] public byte group { get; set; }
+            [Category("Attributes"), DisplayName("Class")] public byte mClass { get; set; }
+            [Category("Rendering"), DisplayName("Alpha")] public byte alpha { get; set; }
+            [Category("Pointers"), DisplayName("Class Pointer")] public uint pClass { get; set; }
+            [Category("Pointers"), DisplayName("Chain Pointer")] public uint pChain { get; set; }
+            [Category("Transform"), DisplayName("Scale")] public float scale { get; set; }
+            [Category("Attributes"), DisplayName("Update Distance")] public byte updateDistance { get; set; }
+            [Category("Flags"), DisplayName("Visible")] public byte visible { get; set; }
+            [Category("Rendering"), DisplayName("Draw Distance")] public short drawDistance { get; set; }
+            [Category("Flags"), DisplayName("Mode Bits")] public ushort modeBits { get; set; }
+            [Category("Unknowns"), DisplayName("Unk36")] public ushort unk36 { get; set; }
+            [Category("Rendering"), DisplayName("Color")] public Rgb24 color { get; set; }
+            [Category("Rendering"), DisplayName("Light")] public int light { get; set; }
+            [Category("Transform"), DisplayName("Rotation")] public Vector4 rotation { get; set; }
+            [Category("Animation"), DisplayName("Previous Frame")] public byte previousAnimationFrame { get; set; }
+            [Category("Animation"), DisplayName("Current Frame")] public byte animationFrame { get; set; }
+            [Category("Animation"), DisplayName("Previous Animation ID")] public byte previousAnimationID { get; set; }
+            [Category("Animation"), DisplayName("Animation ID")] public byte animationID { get; set; }
+            [Category("Animation"), DisplayName("Blend")] public float animationBlend { get; set; }
+            [Category("Unknowns"), DisplayName("Unk58")] public float unk58 { get; set; }
+            [Category("Animation"), DisplayName("Frame Speed")] public float frameSpeed { get; set; }
+            [Category("Pointers"), DisplayName("Animation Layers Pointer")] public uint pAnimationLayers { get; set; }
+            [Category("Pointers"), DisplayName("Prev Animation Data Ptr")] public uint pPreviousAnimationData { get; set; }
+            [Category("Pointers"), DisplayName("Current Animation Data Ptr")] public uint pCurrentAnimationData { get; set; }
+            [Category("Pointers"), DisplayName("Update Pointer")] public uint pUpdate { get; set; }
+            [Category("Pointers"), DisplayName("pVars Pointer")] public uint pVars { get; set; }
+            [Category("Unknowns"), DisplayName("Unk7C")] public byte unk7C { get; set; }
+            [Category("Unknowns"), DisplayName("Unk7D")] public byte unk7D { get; set; }
+            [Category("Unknowns"), DisplayName("Unk7E")] public byte unk7E { get; set; }
+            [Category("Flags"), DisplayName("Shadow")] public byte shadow { get; set; }
+            [Category("Unknowns"), DisplayName("Unk80")] public uint unk80 { get; set; }
+            [Category("Unknowns"), DisplayName("Unk84")] public int unk84 { get; set; }
+            [Category("Unknowns"), DisplayName("Unk88")] public int unk88 { get; set; }
+            [Category("Attributes"), DisplayName("Object Class")] public ushort oClass { get; set; }
+            [Category("Attributes"), DisplayName("UID")] public ushort UID { get; set; }
+            [Category("Transform"), DisplayName("Transformation Matrix")] public Matrix3x4 transformation { get; set; }
 
             public IngameMobyMemory()
             {

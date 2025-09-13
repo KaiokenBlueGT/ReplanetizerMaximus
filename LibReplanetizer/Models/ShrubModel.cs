@@ -7,6 +7,7 @@
 
 using System.ComponentModel;
 using System.IO;
+using System.Collections.Generic; // Add this namespace for List<>
 using static LibReplanetizer.DataFunctions;
 
 namespace LibReplanetizer.Models
@@ -34,6 +35,21 @@ namespace LibReplanetizer.Models
         public uint off38 { get; set; }
         public uint off3C { get; set; }
 
+        // Add a default constructor for creating empty shrub models (useful for cloning)
+        public ShrubModel()
+        {
+            // Initialize with default values
+            id = 0;
+            cullingX = 0.0f;
+            cullingY = 0.0f;
+            cullingZ = 0.0f;
+            cullingRadius = 1.0f;
+            size = 1.0f;
+            
+            textureConfig = new List<TextureConfig>();
+            vertexBuffer = new float[0];
+            indexBuffer = new ushort[0];
+        }
 
         public ShrubModel(FileStream fs, byte[] tieBlock, int num)
         {

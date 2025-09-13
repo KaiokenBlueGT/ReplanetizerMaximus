@@ -29,7 +29,7 @@ namespace LibReplanetizer.LevelObjects
         [Category("Unknowns"), DisplayName("OFF_64: Always 0")]
         public uint off64 { get; set; }
         [Category("Attributes"), DisplayName("Light"), Description("Index of the directional light that is applied to the tie.")]
-        public ushort light { get; set; }
+        public uint light { get; set; }
         [Category("Unknowns"), DisplayName("OFF_6C: Always 0")]
         public uint off6C { get; set; }
 
@@ -74,7 +74,7 @@ namespace LibReplanetizer.LevelObjects
 
             int colorOffset = ReadInt(levelBlock, offset + 0x60);
             off64 = ReadUint(levelBlock, offset + 0x64);
-            light = ReadUshort(levelBlock, offset + 0x68);
+            light = ReadUint(levelBlock, offset + 0x68);
             off6C = ReadUint(levelBlock, offset + 0x6C);
 
             model = tieModels.Find(tieModel => tieModel.id == modelID);
@@ -120,8 +120,7 @@ namespace LibReplanetizer.LevelObjects
 
             WriteInt(bytes, 0x60, colorOffset);
             WriteUint(bytes, 0x64, off64);
-            WriteUshort(bytes, 0x68, light);
-            WriteUshort(bytes, 0x6A, 0xffff);
+            WriteUint(bytes, 0x68, light);
             WriteUint(bytes, 0x6C, off6C);
 
             return bytes;
@@ -141,8 +140,7 @@ namespace LibReplanetizer.LevelObjects
 
             WriteInt(bytes, 0x60, 0);
             WriteUint(bytes, 0x64, off64);
-            WriteUshort(bytes, 0x68, light);
-            WriteUshort(bytes, 0x6A, 0xffff);
+            WriteUint(bytes, 0x68, light);
             WriteUint(bytes, 0x6C, off6C);
 
             return bytes;

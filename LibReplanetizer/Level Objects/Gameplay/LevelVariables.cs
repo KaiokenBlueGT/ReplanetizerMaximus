@@ -18,6 +18,12 @@ namespace LibReplanetizer.LevelObjects
     {
         private uint byteSize = 0x0;
 
+        public uint ByteSize
+        {
+            get => this.byteSize;
+            set => this.byteSize = value;
+        }
+
         [Category("Attributes"), DisplayName("Background Color")]
         public Rgb24 backgroundColor { get; set; }
 
@@ -138,6 +144,10 @@ namespace LibReplanetizer.LevelObjects
 
         [Category("Unknown"), DisplayName("OFF_80")]
         public int off80 { get; set; }
+
+        [Category("Unknown"), DisplayName("OFF_84")]
+        public int off84 { get; set; }
+
         [Category("Unknown"), DisplayName("OFF_98")]
         public int off98 { get; set; }
         [Category("Unknown"), DisplayName("OFF_9C")]
@@ -266,9 +276,15 @@ namespace LibReplanetizer.LevelObjects
             }
             else
             {
-                byteSize = 0x80;
+                byteSize = 0x88;
 
                 off7C = ReadInt(levelVarBlock, 0x7C);
+
+                if (levelVarBlock.Length >= 0x88)
+                {
+                    off80 = ReadInt(levelVarBlock, 0x80);
+                    off84 = ReadInt(levelVarBlock, 0x84);
+                }
             }
 
             backgroundColor = Color.FromRgb((byte) bgRed, (byte) bgGreen, (byte) bgBlue).ToPixel<Rgb24>();
@@ -530,6 +546,8 @@ namespace LibReplanetizer.LevelObjects
             else
             {
                 WriteInt(bytes, 0x7C, off7C);
+                WriteInt(bytes, 0x80, off80);
+                WriteInt(bytes, 0x84, off84);
             }
 
             return bytes;
@@ -537,6 +555,16 @@ namespace LibReplanetizer.LevelObjects
 
         private byte[] SerializeRC3()
         {
+            // Ensure correct byteSize is set based on chunkCount
+            if (chunkCount > 1)
+            {
+                byteSize = 0x104; // Ensure this is set correctly
+            }
+            else
+            {
+                byteSize = 0x84;
+            }
+
             byte[] bytes = new byte[byteSize];
 
             WriteUint(bytes, 0x00, backgroundColor.R);
@@ -652,6 +680,35 @@ namespace LibReplanetizer.LevelObjects
             unknownBytes.CopyTo(bytes, 0x84);
 
             return bytes;
+        }
+
+        public void CopyFrom(LevelVariables other)
+        {
+            if (other == null) return;
+            
+            // Copy only the core properties that are definitely present
+            // Instead of trying to copy properties that don't exist
+            
+            // Core level properties that exist in all game types
+            this.backgroundColor = other.backgroundColor;
+            this.fogColor = other.fogColor;
+            this.fogNearDistance = other.fogNearDistance;
+            this.fogFarDistance = other.fogFarDistance;
+            this.fogNearIntensity = other.fogNearIntensity;
+            this.fogFarIntensity = other.fogFarIntensity;
+            this.deathPlaneZ = other.deathPlaneZ;
+            this._isSphericalWorld = other._isSphericalWorld;
+            
+            // Copy ship-related data
+            this.sphereCentre = other.sphereCentre;
+            this.shipPosition = other.shipPosition;
+            this.shipRotation = other.shipRotation;
+            this.shipPathID = other.shipPathID;
+            this.shipCameraStartID = other.shipCameraStartID;
+            this.shipCameraEndID = other.shipCameraEndID;
+            
+            // Note: We don't copy the chunk data as it's game-specific
+            // and could cause serialization issues
         }
     }
 }

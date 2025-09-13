@@ -18,6 +18,24 @@ namespace LibReplanetizer
 
         public int num { get; private set; }
         public int mobyElemSize { get; private set; }
+        
+        /// <summary>
+        /// Gets a human-readable name for this game type
+        /// </summary>
+        public string Name
+        {
+            get
+            {
+                return num switch
+                {
+                    1 => "Ratchet & Clank",
+                    2 => "Ratchet & Clank: Going Commando",
+                    3 => "Ratchet & Clank: Up Your Arsenal",
+                    4 => "Ratchet: Deadlocked",
+                    _ => $"Unknown Game ({num})"
+                };
+            }
+        }
 
         private GameType(int gameNum)
         {

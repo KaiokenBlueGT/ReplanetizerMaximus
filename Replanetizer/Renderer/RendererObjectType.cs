@@ -26,9 +26,10 @@ namespace Replanetizer.Renderer
         PointLight = 12,
         EnvSample = 13,
         EnvTransition = 14,
-        GrindPath = 15,
-        Tool = 16,
-        Skybox = 999
+          GrindPath = 15,
+          Collision = 16,
+          Tool = 17,
+          Skybox = 999
     }
 
     public static class RenderedObjectTypeUtils
@@ -67,6 +68,8 @@ namespace Replanetizer.Renderer
                     return RenderedObjectType.EnvTransition;
                 case GrindPath:
                     return RenderedObjectType.GrindPath;
+                case CollisionObject:
+                    return RenderedObjectType.Collision;
             }
 
             return RenderedObjectType.Null;

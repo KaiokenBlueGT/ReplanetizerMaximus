@@ -22,8 +22,8 @@ namespace Replanetizer.Renderer
         private List<int> vbos = new List<int>();
         private List<int> vaos = new List<int>();
         private List<int> indexCount = new List<int>();
-        private int numCollisions = 0;
-
+        private List<CollisionObject> objects = new List<CollisionObject>();
+        
         public CollisionRenderer(ShaderTable shaderTable)
         {
             this.shaderTable = shaderTable;
@@ -31,10 +31,10 @@ namespace Replanetizer.Renderer
 
         public override void Include<T>(T obj)
         {
-            if (obj is Collision collision)
+            if (obj is CollisionObject collObj)
             {
-                uint[] indexBuffer = collision.indBuff;
-                float[] vertexBuffer = collision.vertexBuffer;
+                uint[] indexBuffer = collObj.model.indBuff;
+                float[] vertexBuffer = collObj.model.vertexBuffer;
 
                 int vao;
                 GL.GenVertexArrays(1, out vao);
@@ -60,8 +60,8 @@ namespace Replanetizer.Renderer
 
                 ibos.Add(ibo);
                 indexCount.Add(indexBuffer.Length);
-
-                numCollisions++;
+                objects.Add(collObj);
+                collObj.dirty = false;
 
                 return;
             }
@@ -73,7 +73,7 @@ namespace Replanetizer.Renderer
         {
             if (list.Count == 0) return;
 
-            if (list is List<Collision> collisionChunks)
+            if (list is List<CollisionObject> collisionChunks)
             {
                 for (int i = 0; i < collisionChunks.Count; i++)
                 {
@@ -89,35 +89,48 @@ namespace Replanetizer.Renderer
         public override void Render(RendererPayload payload)
         {
             Matrix4 worldToView = payload.camera.GetWorldViewMatrix();
-            Matrix4 modelToWorld = Matrix4.Identity;
 
             shaderTable.colorShader.UseShader();
-            shaderTable.colorShader.SetUniform1(UniformName.levelObjectType, (int) RenderedObjectType.Null);
-            shaderTable.colorShader.SetUniform4(UniformName.incolor, 1.0f, 1.0f, 1.0f, 1.0f);
             shaderTable.colorShader.SetUniformMatrix4(UniformName.worldToView, ref worldToView);
-            shaderTable.colorShader.SetUniformMatrix4(UniformName.modelToWorld, ref modelToWorld);
 
             shaderTable.collisionShader.UseShader();
             shaderTable.collisionShader.SetUniformMatrix4(UniformName.worldToView, ref worldToView);
 
             shaderTable.colorShader.UseShader();
-            GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Line);
+            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Line);
 
-            for (int i = 0; i < numCollisions; i++)
+            for (int i = 0; i < objects.Count; i++)
             {
                 if (!payload.visibility.chunks[i]) continue;
 
+                if (objects[i].dirty)
+                {
+                    float[] vb = objects[i].model.vertexBuffer;
+                    GL.BindBuffer(BufferTarget.ArrayBuffer, vbos[i]);
+                    GL.BufferData(BufferTarget.ArrayBuffer, vb.Length * sizeof(float), vb, BufferUsageHint.StaticDraw);
+                    objects[i].dirty = false;
+                }
+
+                var mat = objects[i].modelMatrix;
+                shaderTable.colorShader.SetUniformMatrix4(UniformName.modelToWorld, ref mat);
+                shaderTable.colorShader.SetUniform1(UniformName.levelObjectType, (int)RenderedObjectType.Collision);
+                shaderTable.colorShader.SetUniform1(UniformName.levelObjectNumber, objects[i].globalID);
+                shaderTable.colorShader.SetUniform4(UniformName.incolor, 1.0f, 1.0f, 1.0f, 1.0f);
                 GL.BindVertexArray(vaos[i]);
                 GL.DrawElements(PrimitiveType.Triangles, indexCount[i], DrawElementsType.UnsignedInt, 0);
             }
 
             shaderTable.collisionShader.UseShader();
-            GL.PolygonMode(TriangleFace.FrontAndBack, PolygonMode.Fill);
+            GL.PolygonMode(MaterialFace.FrontAndBack, PolygonMode.Fill);
 
-            for (int i = 0; i < numCollisions; i++)
+            for (int i = 0; i < objects.Count; i++)
             {
                 if (!payload.visibility.chunks[i]) continue;
 
+                var mat = objects[i].modelMatrix;
+                shaderTable.collisionShader.SetUniformMatrix4(UniformName.modelToWorld, ref mat);
+                shaderTable.collisionShader.SetUniform1(UniformName.levelObjectType, (int)RenderedObjectType.Collision);
+                shaderTable.collisionShader.SetUniform1(UniformName.levelObjectNumber, objects[i].globalID);
                 GL.BindVertexArray(vaos[i]);
                 GL.DrawElements(PrimitiveType.Triangles, indexCount[i], DrawElementsType.UnsignedInt, 0);
             }
@@ -127,7 +140,7 @@ namespace Replanetizer.Renderer
 
         public override void Dispose()
         {
-            for (int i = 0; i < numCollisions; i++)
+            for (int i = 0; i < objects.Count; i++)
             {
                 GL.DeleteBuffer(ibos[i]);
                 GL.DeleteBuffer(vbos[i]);

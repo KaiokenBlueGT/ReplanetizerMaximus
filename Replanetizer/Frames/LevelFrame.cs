@@ -10,21 +10,23 @@ using System.Collections.Generic;
 using System.Collections.Specialized;
 using System.IO;
 using System.Linq;
-using SysVector2 = System.Numerics.Vector2;
 using ImGuiNET;
 using LibReplanetizer;
 using LibReplanetizer.LevelObjects;
+using LibReplanetizer.Models;
 using OpenTK.Graphics.OpenGL;
 using OpenTK.Mathematics;
 using OpenTK.Windowing.GraphicsLibraryFramework;
+using Replanetizer.MemoryHook;
+using Replanetizer.Renderer;
 using Replanetizer.Tools;
 using Replanetizer.Utils;
-using Replanetizer.Renderer;
-using Replanetizer.MemoryHook;
+using SixLabors.ImageSharp;
 using static LibReplanetizer.DataFunctions;
 using static LibReplanetizer.Utilities;
+using Buffer = System.Buffer;
+using SysVector2 = System.Numerics.Vector2;
 using Texture = LibReplanetizer.Texture;
-using SixLabors.ImageSharp;
 
 namespace Replanetizer.Frames
 {
@@ -50,11 +52,14 @@ namespace Replanetizer.Frames
         private readonly string[] selectionPositioningOptions = { PivotPositioning.Mean.HUMAN_NAME, PivotPositioning.IndividualOrigins.HUMAN_NAME };
         private readonly string[] selectionSpaceOptions = { TransformSpace.Global.HUMAN_NAME, TransformSpace.Local.HUMAN_NAME };
 
-        private int antialiasing = 3;
+        private int antialiasing = 1;
         private readonly string[] antialiasingOptions = { "Off", "2x MSAA", "4x MSAA", "8x MSAA", "16x MSAA", "32x MSAA", "64x MSAA", "128x MSAA", "256x MSAA", "512x MSAA" };
         private int maxAntialiasing = 4;
 
         private Vector2 mousePos;
+        private Vector2 windowPos;
+        private bool boxSelecting;
+        private Vector2 boxSelectStart;
         private Vector3 prevMouseRay;
         private Rectangle contentRegion;
         private int lastMouseX, lastMouseY;
@@ -84,6 +89,9 @@ namespace Replanetizer.Frames
 
         private List<Frame> subFrames;
 
+        // Store the latest collision warning message for UI display
+        private string? collisionWarningMessage;
+
         public LevelFrame(Window wnd, string res) : base(wnd)
         {
             level = new Level(res);
@@ -105,10 +113,56 @@ namespace Replanetizer.Frames
 
             rendererPayload = new RendererPayload(camera, selectedObjects, toolbox);
 
+            // Subscribe to collision warnings from ObjTerrainImporter
+            LibReplanetizer.ObjTerrainImporter.CollisionWarning += OnCollisionWarning;
+
             UpdateWindowSize();
             OnResize();
 
             LoadLevel(level);
+        }
+
+        // Handler for collision warnings
+        private void OnCollisionWarning(string message)
+        {
+            collisionWarningMessage = message;
+            LOGGER.Warn("[CollisionWarning] " + message);
+        }
+
+        private void DumpCollisionBytes(int length = 64)
+        {
+            if (level.collBytesEngine == null)
+            {
+                LOGGER.Warn("[DumpCollisionBytes] collBytesEngine is null");
+                Console.WriteLine("[DumpCollisionBytes] collBytesEngine is null");
+                return;
+            }
+
+            string hex = BitConverter.ToString(level.collBytesEngine, 0,
+                Math.Min(length, level.collBytesEngine.Length));
+            LOGGER.Info(hex);
+            Console.WriteLine(hex);
+        }
+
+        private void DumpCollisionBytesFull()
+        {
+            if (level.collBytesEngine == null)
+            {
+                LOGGER.Warn("[DumpCollisionBytesFull] collBytesEngine is null");
+                Console.WriteLine("[DumpCollisionBytesFull] collBytesEngine is null");
+                return;
+            }
+            string path = CrossFileDialog.SaveFile("CollisionBytesFull.txt", ".txt");
+            if (string.IsNullOrEmpty(path)) return;
+            using (StreamWriter sw = File.CreateText(path))
+            {
+                for (int i = 0; i < level.collBytesEngine.Length; i++)
+                {
+                    sw.WriteLine($"{i:D6}: 0x{level.collBytesEngine[i]:X2}");
+                }
+            }
+            LOGGER.Info($"[DumpCollisionBytesFull] Saved {level.collBytesEngine.Length} bytes to {path}");
+            Console.WriteLine($"[DumpCollisionBytesFull] Saved {level.collBytesEngine.Length} bytes to {path}");
         }
 
         public static bool FrameMustClose(Frame frame)
@@ -131,12 +185,43 @@ namespace Replanetizer.Frames
                         var res = CrossFileDialog.SaveFile();
                         if (res.Length > 0)
                         {
+                            // --- PATCH: Ensure collision bytes are updated before saving ---
+                            level.UpdateCollisionBytesFromChunks();
+                            try
+                            {
+                                LOGGER.Info("[DIAG] Save As menu item triggered!");
+                                Console.WriteLine("[DIAG] Save As menu item triggered!");
+                                if (level.collBytesEngine != null && level.collBytesEngine.Length > 0)
+                                {
+                                    LOGGER.Info($"[DIAG] collBytesEngine length: {level.collBytesEngine.Length}");
+                                    Console.WriteLine($"[DIAG] collBytesEngine length: {level.collBytesEngine.Length}");
+                                }
+                                else
+                                {
+                                    LOGGER.Warn("[DIAG] collBytesEngine is null or empty before save!");
+                                    Console.WriteLine("[DIAG] collBytesEngine is null or empty before save!");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                LOGGER.Error(ex, "[DIAG] Exception in Save As diagnostics");
+                                Console.WriteLine($"[DIAG] Exception: {ex}");
+                            }
                             level.Save(res);
                         }
                     }
                     if (interactiveSession)
                     {
                         ImGui.EndDisabled();
+                    }
+
+                    if (ImGui.MenuItem("Log collision bytes"))
+                    {
+                        DumpCollisionBytes();
+                    }
+                    if (ImGui.MenuItem("Log ALL collision bytes (to .txt)"))
+                    {
+                        DumpCollisionBytesFull();
                     }
 
                     if (ImGui.BeginMenu("Export"))
@@ -209,6 +294,22 @@ namespace Replanetizer.Frames
                                 fs.Close();
                             }
                             InvalidateView();
+                        }
+                        // NEW: Resize existing collision to match current terrain fragments
+                        if (ImGui.MenuItem("Resize Collision to Terrain"))
+                        {
+                            enableCameraInfo = true; // Just to see if UI changes
+                            LOGGER.Info("[UI] Resize Collision to Terrain selected."); // NLog
+                            Console.WriteLine("[UI] Resize Collision to Terrain selected."); // Console
+                            ResizeCollisionToCurrentTerrain();
+                        }
+                        // NEW: Resize existing collision to match current terrain fragments, with byte fixing
+                        if (ImGui.MenuItem("Resize Collision to Terrain (with Byte Fixer)", null, false, true))
+                        {
+                            enableCameraInfo = true;
+                            LOGGER.Info("[UI] Resize Collision to Terrain with Byte Fixer selected.");
+                            Console.WriteLine("[UI] Resize Collision to Terrain with Byte Fixer selected.");
+                            ResizeCollisionToCurrentTerrainWithByteFixer();
                         }
                         ImGui.EndMenu();
                     }
@@ -319,6 +420,7 @@ namespace Replanetizer.Frames
                     ImGui.EndMenu();
                 }
 
+                // Show Chunks menu even if there is only one chunk
                 if (chunkCount > 0 && ImGui.BeginMenu("Chunks"))
                 {
                     for (int i = 0; i < chunkCount; i++)
@@ -410,9 +512,29 @@ namespace Replanetizer.Frames
                     $"Rotation: (yaw: {camRotZ:F4}, pitch: {camRotX:F4})"
                 );
 
-                movingAvgFrametime = movingAvgFrametime * 0.95f + deltaTime * 0.05f;
+                // Show collision warning if present
+                if (!string.IsNullOrEmpty(collisionWarningMessage))
+                {
+                    ImGui.PushStyleColor(ImGuiCol.Text, 0xff00ffff); // Cyan for warning
+                    ImGui.Text($"Collision Warning: {collisionWarningMessage}");
+                    ImGui.PopStyleColor();
+                }
+
+                // FIX 1: Add safety checks for deltaTime to prevent crashes
+                if (deltaTime > 0.0f && !float.IsInfinity(deltaTime) && !float.IsNaN(deltaTime))
+                {
+                    // Clamp deltaTime to reasonable bounds (max 1 second frame time)
+                    float clampedDeltaTime = MathF.Min(deltaTime, 1.0f);
+                    movingAvgFrametime = movingAvgFrametime * 0.95f + clampedDeltaTime * 0.05f;
+                    
+                    // Ensure movingAvgFrametime stays within reasonable bounds
+                    movingAvgFrametime = MathF.Max(movingAvgFrametime, 0.001f); // Min 1000 FPS
+                    movingAvgFrametime = MathF.Min(movingAvgFrametime, 1.0f);   // Max 1 FPS
+                }
+                
                 float fps = MathF.Round(1.0f / movingAvgFrametime);
                 float frametime = ((float) (MathF.Round(10000.0f * movingAvgFrametime))) / 10.0f;
+                
                 switch (fps)
                 {
                     case < 30:
@@ -436,6 +558,39 @@ namespace Replanetizer.Frames
             ImGui.End();
         }
 
+        /// <param name="allowNewGrab">whether a new click will begin grabbing</param>
+        /// <returns>whether the cursor is being grabbed</returns>
+        private bool CheckForRotationInput(float deltaTime, bool allowNewGrab)
+        {
+            if (mouseGrabHandler.TryGrabMouse(wnd, allowNewGrab))
+            {
+                // FIX 2: Only disable mouse when we're actually in the level viewport
+                // and only for this specific frame, not globally
+                var isMouseInLevelViewport = ImGui.IsWindowHovered() && 
+                                           contentRegion.Contains(new Point((int) wnd.MousePosition.X, (int) wnd.MousePosition.Y));
+                
+                if (isMouseInLevelViewport)
+                {
+                    ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouse;
+                }
+            }
+            else
+            {
+                // FIX 2: Always restore mouse input when not grabbing
+                ImGui.GetIO().ConfigFlags &= ~ImGuiConfigFlags.NoMouse;
+                return false;
+            }
+
+            Vector2 rot = new Vector2(wnd.MouseState.Delta.X * 0.016666f, wnd.MouseState.Delta.Y * 0.016666f);
+
+            rot *= camera.speed;
+
+            camera.Rotate(rot);
+
+            InvalidateView();
+            return true;
+        }
+
         private void UpdateWindowSize()
         {
             int prevWidth = width, prevHeight = height;
@@ -457,6 +612,7 @@ namespace Replanetizer.Frames
 
             System.Numerics.Vector2 cursorScreenPos = ImGui.GetCursorScreenPos();
             Vector2 windowZero = new Vector2(cursorScreenPos.X, cursorScreenPos.Y);
+            windowPos = windowZero;
             mousePos = wnd.MousePosition - windowZero;
             contentRegion = new Rectangle((int) windowZero.X, (int) windowZero.Y, width, height);
         }
@@ -503,6 +659,7 @@ namespace Replanetizer.Frames
                 renderer.RenderToTexture(() =>
                 {
                     //Setup openGL variables
+                    GL.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
                     GL.Enable(EnableCap.DepthTest);
                     GL.Viewport(0, 0, width, height);
                     GL.Enable(EnableCap.ScissorTest);
@@ -514,6 +671,17 @@ namespace Replanetizer.Frames
             }
             ImGui.Image((IntPtr) renderer.outputTexture, new System.Numerics.Vector2(width, height),
                     System.Numerics.Vector2.UnitY, System.Numerics.Vector2.UnitX);
+
+            if (boxSelecting)
+            {
+                var draw = ImGui.GetWindowDrawList();
+                System.Numerics.Vector2 start = new System.Numerics.Vector2(boxSelectStart.X + windowPos.X, boxSelectStart.Y + windowPos.Y);
+                System.Numerics.Vector2 end = new System.Numerics.Vector2(mousePos.X + windowPos.X, mousePos.Y + windowPos.Y);
+                uint fill = ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(0.2f, 0.5f, 1f, 0.2f));
+                uint line = ImGui.ColorConvertFloat4ToU32(new System.Numerics.Vector4(0.2f, 0.5f, 1f, 1f));
+                draw.AddRectFilled(start, end, fill);
+                draw.AddRect(start, end, line);
+            }
         }
 
         private void RenderSubFrames(float deltaTime)
@@ -529,6 +697,15 @@ namespace Replanetizer.Frames
         {
             //Setup openGL variables
             GL.Enable(EnableCap.DepthTest);
+
+            Matrix4 dissolvePattern = new Matrix4(1.0f / 17.0f, 9.0f / 17.0f, 3.0f / 17.0f, 11.0f / 17.0f,
+                                        13.0f / 17.0f, 5.0f / 17.0f, 15.0f / 17.0f, 7.0f / 17.0f,
+                                        4.0f / 17.0f, 12.0f / 17.0f, 2.0f / 17.0f, 10.0f / 17.0f,
+                                        16.0f / 17.0f, 8.0f / 17.0f, 14.0f / 17.0f, 6.0f / 17.0f);
+            shaderTable.meshShader.UseShader();
+            shaderTable.meshShader.SetUniformMatrix4(UniformName.dissolvePattern, ref dissolvePattern);
+            shaderTable.animationShader.UseShader();
+            shaderTable.animationShader.SetUniformMatrix4(UniformName.dissolvePattern, ref dissolvePattern);
 
             initialized = true;
 
@@ -579,7 +756,7 @@ namespace Replanetizer.Frames
 
             LoadLevelTextures();
 
-            chunkCount = level.terrainChunks.Count;
+            chunkCount = Math.Max(level.terrainChunks.Count, level.collisionObjects.Count);
 
             levelRenderer = new LevelRenderer(shaderTable, textureIds);
             levelRenderer.Include(this.level);
@@ -597,6 +774,161 @@ namespace Replanetizer.Frames
             selectedObjects.Clear();
 
             InvalidateView();
+            // Do NOT generate collision automatically here.
+        }
+
+        /// <summary>
+        /// Manually generate collision from the current terrain fragments.
+        /// </summary>
+        public void ResizeCollisionToCurrentTerrain()
+        {
+            if (level?.terrainEngine?.fragments == null || level.terrainEngine.fragments.Count == 0)
+            {
+                LOGGER.Warn("[CollisionResize] No terrain fragments available to generate collision from.");
+                Console.WriteLine("[CollisionResize] No terrain fragments available to generate collision from.");
+                return;
+            }
+
+            LOGGER.Info($"[CollisionResize] Generating unified collision from {level.terrainEngine.fragments.Count} terrain fragments...");
+            Console.WriteLine($"[CollisionResize] Generating unified collision from {level.terrainEngine.fragments.Count} terrain fragments...");
+
+            // --- AFTER (Correctly creates one unified chunk) ---
+            // Reuse the existing, correct logic from the importer.
+            ObjTerrainImporter.GenerateAndAssignCollision(level, level.terrainEngine.fragments);
+
+            // Update chunk count for rendering and saving
+            int newChunkCount = level.collisionChunks?.Count ?? 0;
+            rendererPayload.visibility.chunks = new bool[newChunkCount];
+            if (newChunkCount > 0)
+            {
+                Array.Fill(rendererPayload.visibility.chunks, true);
+            }
+            this.chunkCount = newChunkCount;
+
+            // Refresh the renderer to show the new collision
+            levelRenderer?.Dispose();
+            levelRenderer = new LevelRenderer(shaderTable, textureIds);
+            levelRenderer.Include(level);
+            InvalidateView();
+
+            LOGGER.Info($"[CollisionResize] Successfully generated collision. Chunks: {newChunkCount}, Bytes: {level.collBytesEngine?.Length ?? 0}");
+            Console.WriteLine($"[CollisionResize] Successfully generated collision. Chunks: {newChunkCount}, Bytes: {level.collBytesEngine?.Length ?? 0}");
+        }
+
+        /// <summary>
+        /// Manually generate collision from the current terrain fragments, with improved byte fixer parsing for range and single offsets.
+        /// </summary>
+        public void ResizeCollisionToCurrentTerrainWithByteFixer()
+        {
+            if (level?.terrainEngine?.fragments == null || level.terrainEngine.fragments.Count == 0)
+            {
+                LOGGER.Warn("[CollisionResize] No terrain fragments available to generate collision from.");
+                Console.WriteLine("[CollisionResize] No terrain fragments available to generate collision from.");
+                return;
+            }
+
+            // Prompt user for a comparison report file
+            string reportPath = CrossFileDialog.OpenFile("Select Collision Byte Comparison Report", ".txt");
+            Dictionary<int, byte> byteFixes = new Dictionary<int, byte>();
+            if (!string.IsNullOrEmpty(reportPath) && File.Exists(reportPath))
+            {
+                foreach (var line in File.ReadLines(reportPath))
+                {
+                    // Example: Offsets 0x000000-0x000002: Common byte is 0x00 (Length: 3)
+                    // Example: Offset 0x000003:          Common byte is 0x10
+                    if (line.StartsWith("Offsets "))
+                    {
+                        int startIdx = line.IndexOf("0x");
+                        int dashIdx = line.IndexOf("-", startIdx);
+                        int endIdx = line.IndexOf(":", dashIdx);
+                        int byteIdx = line.IndexOf("0x", endIdx);
+                        if (startIdx >= 0 && dashIdx > startIdx && endIdx > dashIdx && byteIdx > endIdx)
+                        {
+                            string startHex = line.Substring(startIdx, dashIdx - startIdx).Trim();
+                            string endHex = line.Substring(dashIdx + 1, endIdx - dashIdx - 1).Trim();
+                            string byteHex = line.Substring(byteIdx, line.Length - byteIdx).Trim();
+                            if (int.TryParse(startHex.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out int startOffset) &&
+                                int.TryParse(endHex.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out int endOffset) &&
+                                byte.TryParse(byteHex.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out byte value))
+                            {
+                                for (int i = startOffset; i <= endOffset; i++)
+                                    byteFixes[i] = value;
+                            }
+                        }
+                    }
+                    else if (line.StartsWith("Offset "))
+                    {
+                        int offsetIdx = line.IndexOf("0x");
+                        int colonIdx = line.IndexOf(":", offsetIdx);
+                        int byteIdx = line.IndexOf("0x", colonIdx);
+                        if (offsetIdx >= 0 && colonIdx > offsetIdx && byteIdx > colonIdx)
+                        {
+                            string offsetHex = line.Substring(offsetIdx, colonIdx - offsetIdx).Trim();
+                            string byteHex = line.Substring(byteIdx, line.Length - byteIdx).Trim();
+                            if (int.TryParse(offsetHex.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out int offset) &&
+                                byte.TryParse(byteHex.Replace("0x", ""), System.Globalization.NumberStyles.HexNumber, null, out byte value))
+                            {
+                                byteFixes[offset] = value;
+                            }
+                        }
+                    }
+                }
+            }
+
+            LOGGER.Info($"[CollisionResize] Generating unified collision from {level.terrainEngine.fragments.Count} terrain fragments...");
+            Console.WriteLine($"[CollisionResize] Generating unified collision from {level.terrainEngine.fragments.Count} terrain fragments...");
+
+            ObjTerrainImporter.GenerateAndAssignCollision(level, level.terrainEngine.fragments);
+
+            // --- PATCH: Apply byte fixes from report ---
+            if (level.collBytesEngine != null && byteFixes.Count > 0)
+            {
+                foreach (var kvp in byteFixes)
+                {
+                    if (kvp.Key >= 0 && kvp.Key < level.collBytesEngine.Length)
+                        level.collBytesEngine[kvp.Key] = kvp.Value;
+                }
+                LOGGER.Info($"[CollisionResize] Applied {byteFixes.Count} byte fixes from report {reportPath}");
+                Console.WriteLine($"[CollisionResize] Applied {byteFixes.Count} byte fixes from report {reportPath}");
+            }
+
+            // Update chunk count for rendering and saving
+            int newChunkCount = level.collisionChunks?.Count ?? 0;
+            rendererPayload.visibility.chunks = new bool[newChunkCount];
+            if (newChunkCount > 0)
+            {
+                Array.Fill(rendererPayload.visibility.chunks, true);
+            }
+            this.chunkCount = newChunkCount;
+
+            // Refresh the renderer to show the new collision
+            levelRenderer?.Dispose();
+            levelRenderer = new LevelRenderer(shaderTable, textureIds);
+            levelRenderer.Include(level);
+            InvalidateView();
+
+            LOGGER.Info($"[CollisionResize] Successfully generated collision. Chunks: {newChunkCount}, Bytes: {level.collBytesEngine?.Length ?? 0}");
+            Console.WriteLine($"[CollisionResize] Successfully generated collision. Chunks: {newChunkCount}, Bytes: {level.collBytesEngine?.Length ?? 0}");
+        }
+
+        public static bool operator ==(LevelFrame a, LevelFrame b)
+        {
+            return a?.Equals(b) ?? b is null;
+        }
+
+        public static bool operator !=(LevelFrame a, LevelFrame b)
+        {
+            return !(a == b);
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is LevelFrame frame && frameName == frame.frameName;
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(frameName);
         }
 
         public void SelectedObjectsOnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
@@ -713,50 +1045,6 @@ namespace Replanetizer.Frames
                 clipboard.Apply(level, this);
         }
 
-        /// <param name="allowNewGrab">whether a new click will begin grabbing</param>
-        /// <returns>whether the cursor is being grabbed</returns>
-        private bool CheckForRotationInput(float deltaTime, bool allowNewGrab)
-        {
-            if (mouseGrabHandler.TryGrabMouse(wnd, allowNewGrab))
-                ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouse;
-            else
-            {
-                ImGui.GetIO().ConfigFlags &= ~ImGuiConfigFlags.NoMouse;
-                return false;
-            }
-
-            Vector2 rot = new Vector2(wnd.MouseState.Delta.X * 0.016666f, wnd.MouseState.Delta.Y * 0.016666f);
-
-            rot *= camera.speed;
-
-            camera.Rotate(rot);
-
-            InvalidateView();
-            return true;
-        }
-
-        private void CheckForMovementInput(float deltaTime)
-        {
-            float moveSpeed = KEYMAP.IsDown(Keybinds.MoveFastModifier) ? 40 : 10;
-            Vector3 moveDir = GetInputAxes();
-            if (moveDir.Length > 0)
-            {
-                moveDir *= moveSpeed * deltaTime;
-                camera.TransformedTranslate(moveDir);
-
-                InvalidateView();
-            }
-
-            Vector2 rotateDir = GetInputRotationAxes();
-            if (rotateDir.Length > 0)
-            {
-                rotateDir *= deltaTime;
-                camera.Rotate(rotateDir);
-
-                InvalidateView();
-            }
-        }
-
         private void HandleToolUpdates(Vector3 mouseRay, Vector3 direction)
         {
             if (toolbox.tool is BasicTransformTool basicTool)
@@ -812,7 +1100,15 @@ namespace Replanetizer.Frames
 
             Vector3 mouseRay = MouseToWorldRay(camera.GetProjectionMatrix(), camera.GetViewMatrix(), new Size(width, height), mousePos);
 
-            if (!HandleLeftMouseDown(mouseRay))
+            bool handled = HandleLeftMouseDown(mouseRay);
+
+            if (!wnd.IsMouseButtonDown(MouseButton.Left) && boxSelecting)
+            {
+                PerformBoxSelect();
+                boxSelecting = false;
+            }
+
+            if (!handled)
             {
                 xLock = false;
                 yLock = false;
@@ -844,9 +1140,21 @@ namespace Replanetizer.Frames
                 direction = Vector3.UnitZ;
 
             if (xLock || yLock || zLock)
+            {
                 HandleToolUpdates(mouseRay, direction);
-            else
+            }
+            else if (obj != null)
+            {
                 HandleSelect(obj);
+            }
+            else
+            {
+                if (!boxSelecting)
+                {
+                    boxSelecting = true;
+                    boxSelectStart = mousePos;
+                }
+            }
 
             return true;
         }
@@ -879,6 +1187,44 @@ namespace Replanetizer.Frames
             }
 
             return true;
+        }
+
+        private void PerformBoxSelect()
+        {
+            Vector2 start = boxSelectStart;
+            Vector2 end = mousePos;
+            Vector2 min = Vector2.ComponentMin(start, end);
+            Vector2 max = Vector2.ComponentMax(start, end);
+
+            bool isMultiSelect = KEYMAP.IsDown(Keybinds.MultiSelectModifier);
+            if (!isMultiSelect)
+                selectedObjects.Clear();
+
+            Matrix4 view = camera.GetViewMatrix();
+            Matrix4 proj = camera.GetProjectionMatrix();
+
+            foreach (var coll in level.collisionObjects)
+            {
+                Vector2 screen = WorldToScreen(coll.position, view, proj, width, height);
+                if (screen.X >= min.X && screen.X <= max.X && screen.Y >= min.Y && screen.Y <= max.Y)
+                {
+                    selectedObjects.Add(coll);
+                }
+            }
+
+            InvalidateView();
+        }
+
+        private static Vector2 WorldToScreen(Vector3 world, Matrix4 view, Matrix4 proj, int width, int height)
+        {
+            // FIX: Use Matrix4.TransformRow to transform a Vector4 by a Matrix4
+            Vector4 clip = Vector4.TransformRow(new Vector4(world, 1.0f), proj * view);
+            if (clip.W == 0) return Vector2.Zero;
+            Vector3 ndc = clip.Xyz / clip.W;
+            return new Vector2(
+                (ndc.X * 0.5f + 0.5f) * width,
+                (1 - (ndc.Y * 0.5f + 0.5f)) * height
+            );
         }
 
         private Vector3 GetInputAxes()
@@ -987,6 +1333,8 @@ namespace Replanetizer.Frames
                     return level.envTransitions.Find(x => x.globalID == hitId);
                 case RenderedObjectType.GrindPath:
                     return level.grindPaths.Find(x => x.globalID == hitId);
+                case RenderedObjectType.Collision:
+                    return level.collisionObjects.Find(x => x.globalID == hitId);
                 case RenderedObjectType.Tool:
                     switch (hitId)
                     {
@@ -1059,6 +1407,92 @@ namespace Replanetizer.Frames
         public void AddSubFrame(Frame frame)
         {
             if (!subFrames.Contains(frame)) subFrames.Add(frame);
+        }
+
+        private void CheckForMovementInput(float deltaTime)
+        {
+            float moveSpeed = KEYMAP.IsDown(Keybinds.MoveFastModifier) ? 40 : 10;
+            Vector3 moveDir = GetInputAxes();
+            if (moveDir.Length > 0)
+            {
+                moveDir *= moveSpeed * deltaTime;
+                camera.TransformedTranslate(moveDir);
+
+                InvalidateView();
+            }
+
+            Vector2 rotateDir = GetInputRotationAxes();
+            if (rotateDir.Length > 0)
+            {
+                rotateDir *= deltaTime;
+                camera.Rotate(rotateDir);
+
+                InvalidateView();
+            }
+        }
+
+        /// <summary>
+        /// Remap textureConfig indices after a texture from the main level texture list is deleted.
+        /// </summary>
+        public void RemapTextureIndices(List<Texture> newTextures)
+        {
+            // Only remap indices if the modified list is the primary level texture list
+            if (!ReferenceEquals(newTextures, level.textures))
+                return;
+
+            // Build a map from old Texture to new index
+            var textureIndexMap = new Dictionary<Texture, int>();
+            for (int i = 0; i < newTextures.Count; i++)
+                textureIndexMap[newTextures[i]] = i;
+
+            void RemapModelTextures(Model? model)
+            {
+                if (model?.textureConfig == null) return;
+                foreach (var conf in model.textureConfig)
+                {
+                    if (conf.id >= 0 && conf.id < level.textures.Count)
+                    {
+                        var oldTex = level.textures[conf.id];
+                        if (textureIndexMap.TryGetValue(oldTex, out int newIdx))
+                            conf.id = newIdx;
+                        else
+                            conf.id = -1;
+                    }
+                    else
+                    {
+                        conf.id = -1;
+                    }
+                }
+            }
+
+            // Remap for terrainEngine fragments
+            if (level.terrainEngine?.fragments != null)
+            {
+                foreach (var fragment in level.terrainEngine.fragments)
+                    RemapModelTextures(fragment.model);
+            }
+
+            // Remap for terrainChunks fragments
+            foreach (var terrain in level.terrainChunks)
+            {
+                foreach (var fragment in terrain.fragments)
+                    RemapModelTextures(fragment.model);
+            }
+
+            // Remap for other model lists using level textures
+            foreach (var model in level.tieModels)
+                RemapModelTextures(model);
+
+            foreach (var model in level.mobyModels)
+                RemapModelTextures(model);
+
+            if (level.shrubModels != null)
+            {
+                foreach (var model in level.shrubModels)
+                    RemapModelTextures(model);
+            }
+
+            RemapModelTextures(level.skybox);
         }
     }
 

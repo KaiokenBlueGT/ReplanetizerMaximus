@@ -50,7 +50,10 @@ namespace LibReplanetizer.Parsers
             byte[] levelBlock = ReadBlock(fileStream, tieModelPointer, tieModelCount * 0x40);
             for (int i = 0; i < tieModelCount; i++)
             {
-                tieModelList.Add(new TieModel(fileStream, levelBlock, i));
+                var model = new TieModel(fileStream, levelBlock, i);
+                // Ensure the model has valid culling bounds before returning
+                model.ValidateCullingData();
+                tieModelList.Add(model);
             }
 
             return tieModelList;

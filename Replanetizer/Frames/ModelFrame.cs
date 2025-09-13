@@ -292,6 +292,7 @@ namespace Replanetizer.Frames
         private void UpdateWindowTitle()
         {
             string newTitle;
+
             if (selectedModel == null)
             {
                 newTitle = "Model Viewer";
@@ -299,6 +300,31 @@ namespace Replanetizer.Frames
             else
             {
                 newTitle = "Model Viewer - " + GetDisplayName(selectedModel);
+
+                // If the currently selected model is associated with a selected
+                // moby instance, append its game format to the title.
+                foreach (ModelObject obj in selectedObjectInstances)
+                {
+                    if (obj is not Moby mob)
+                        continue;
+                    if (!levelFrame.selectedObjects.Contains(mob))
+                        continue;
+
+                    GameType game = mob.Game;
+                    string gameString = game.num switch
+                    {
+                        1 => "RC1",
+                        2 => "RC2",
+                        3 => "RC3",
+                        4 => "DL",
+                        _ => string.Empty
+                    };
+
+                    if (!string.IsNullOrEmpty(gameString))
+                        newTitle += " [" + gameString + "]";
+
+                    break;
+                }
             }
 
             SetWindowTitle(newTitle);
@@ -344,7 +370,9 @@ namespace Replanetizer.Frames
                     UpdateTextures();
                     if (modelTextureList != null && modelTextureList.Count > 0)
                     {
-                        TextureFrame.RenderTextureList(modelTextureList, 64, levelFrame.textureIds);
+                        // Use a temporary TextureFrame instance to render model textures
+                        var tempTextureFrame = new TextureFrame(wnd, levelFrame);
+                        tempTextureFrame.RenderTextureList(modelTextureList, 64, levelFrame.textureIds);
                         ImGui.Separator();
                     }
                     int fileFormat = (int) exportSettings.format;
@@ -740,9 +768,19 @@ namespace Replanetizer.Frames
         private bool CheckForRotationInput(float deltaTime, bool allowNewGrab)
         {
             if (MOUSE_GRAB_HANDLER.TryGrabMouse(wnd, allowNewGrab))
-                ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouse;
+            {
+                // FIX 2: Only disable mouse when we're actually in the model viewport
+                var isMouseInModelViewport = ImGui.IsWindowHovered() && 
+                                             contentRegion.Contains(new Point((int) wnd.MousePosition.X, (int) wnd.MousePosition.Y));
+                
+                if (isMouseInModelViewport)
+                {
+                    ImGui.GetIO().ConfigFlags |= ImGuiConfigFlags.NoMouse;
+                }
+            }
             else
             {
+                // FIX 2: Always restore mouse input when not grabbing
                 ImGui.GetIO().ConfigFlags &= ~ImGuiConfigFlags.NoMouse;
                 return false;
             }

@@ -124,6 +124,27 @@ namespace Replanetizer.Tools
                 float scale = currDist / MathF.Max(0.01f, prevDist);
 
                 obj.scale *= new Vector3(scale, scale, scale);
+                obj.UpdateTransformMatrix();
+            }
+            else if (obj is CollisionObject)
+            {
+                float prevDist = getLineIntersectionDist(pivot, data.axisDir, data.cameraPos, data.mousePrevDir);
+                float currDist = getLineIntersectionDist(pivot, data.axisDir, data.cameraPos, data.mouseCurrDir);
+
+                float prevScale = MathF.Abs(prevDist);
+                float currScale = MathF.Abs(currDist);
+
+                float sign = MathF.Sign(prevDist * currDist);
+                float scale = MathF.Max(0.01f, currScale / MathF.Max(0.01f, prevScale)) * sign;
+
+                Vector3 axisScale = Vector3.One;
+                if (data.axisDir.X != 0) axisScale.X = scale;
+                if (data.axisDir.Y != 0) axisScale.Y = scale;
+                if (data.axisDir.Z != 0) axisScale.Z = scale;
+
+                Matrix4 mat = obj.modelMatrix;
+                mat = mat * Matrix4.CreateTranslation(-pivot) * Matrix4.CreateScale(axisScale) * Matrix4.CreateTranslation(pivot);
+                obj.SetFromMatrix(mat);
             }
             else
             {
@@ -138,10 +159,6 @@ namespace Replanetizer.Tools
                 float sign = MathF.Sign(prevDist * currDist);
                 float change = currScale - prevScale;
 
-                // Otherwise we flip signs on all axis
-                // It is a bit tricky, when should we flip and when shouldn't we?
-                // Also sometimes the signs flip for just one frame so we
-                // make sure that that only happens when we are close to 0
                 float signX = (obj.scale.X < 1.0f && data.axisDir.X != 0.0f) ? sign : 1.0f;
                 float signY = (obj.scale.Y < 1.0f && data.axisDir.Y != 0.0f) ? sign : 1.0f;
                 float signZ = (obj.scale.Z < 1.0f && data.axisDir.Z != 0.0f) ? sign : 1.0f;
@@ -151,9 +168,8 @@ namespace Replanetizer.Tools
                 float scaleZ = signZ * MathF.Max(0.01f, (data.axisDir.Z * change / prevScale + 1.0f));
 
                 obj.scale *= new Vector3(scaleX, scaleY, scaleZ);
+                obj.UpdateTransformMatrix();
             }
-
-            obj.UpdateTransformMatrix();
         }
 
         protected override Vector3 ProcessVec(Vector3 direction, Vector3 magnitude)

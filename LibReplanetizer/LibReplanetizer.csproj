@@ -1,16 +1,22 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0</TargetFrameworks>
+    <TargetFrameworks>net6.0</TargetFrameworks>
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="BCnEncoder.Net" Version="2.2.1" />
     <PackageReference Include="ImGui.NET" Version="1.91.0.1" />
-    <PackageReference Include="NLog" Version="6.0.1" />
-    <PackageReference Include="OpenTK.Mathematics" Version="4.9.4" />
-    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.10" />
-    <PackageReference Include="System.Resources.Extensions" Version="9.0.7" />
+    <PackageReference Include="NLog" Version="5.3.3" />
+    <PackageReference Include="OpenTK.Mathematics" Version="4.8.2" />
+    <PackageReference Include="SixLabors.ImageSharp" Version="3.1.5" />
+    <PackageReference Include="System.Resources.Extensions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Share moby class header definitions with the core library -->
+    <Compile Include="..\GeometrySwapper\MobyClassHeader.cs" />
   </ItemGroup>
 
 </Project>

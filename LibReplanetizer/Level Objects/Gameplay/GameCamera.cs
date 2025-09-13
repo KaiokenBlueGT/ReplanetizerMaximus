@@ -92,7 +92,18 @@ namespace LibReplanetizer.LevelObjects
 
         public override LevelObject Clone()
         {
-            throw new NotImplementedException();
+            // Create a new GameCamera by serializing the current one and creating a new object from the bytes.
+            // This ensures all properties are copied as if it were loaded from a file.
+            byte[] cameraData = this.ToByteArray();
+            GameCamera newCamera = new GameCamera(cameraData, 0)
+            {
+                // The constructor already handles position, rotation from the byte array.
+                // We just need to ensure other properties are set.
+                scale = this.scale,
+                pvarIndex = this.pvarIndex
+            };
+            newCamera.UpdateTransformMatrix();
+            return newCamera;
         }
 
         public ushort[] GetIndices()

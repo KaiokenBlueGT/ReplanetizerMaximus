@@ -20,8 +20,6 @@ namespace Replanetizer.Renderer
      */
     public enum UniformName
     {
-        mainTexture,
-        blueNoiseTexture,
         worldToView,
         modelToWorld,
         levelObjectType,
@@ -33,6 +31,7 @@ namespace Replanetizer.Renderer
         texAvailable,
         selected,
         fogColor,
+        dissolvePattern,
         objectBlendDistance,
         useTransparency,
         incolor,

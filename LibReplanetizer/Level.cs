@@ -27,14 +27,22 @@ namespace LibReplanetizer
 
         public GameType game;
 
+        // Add these two properties
+        public int SplinePointer { get; set; }
+        public int SplineCount { get; set; }
+        public int CameraPointer { get; set; }
+        public int CameraCount { get; set; }
+
         //Models
-        public List<Model> mobyModels;
-        public List<Model> tieModels;
+        public List<Model> mobyModels = new List<Model>();
+        public List<Model> tieModels = new List<Model>();
         public List<Model> shrubModels;
         public List<Model> gadgetModels;
         public List<Model> armorModels;
         public Model collisionEngine;
         public List<Collision> collisionChunks;
+        // Editable wrappers around collision geometry
+        public List<CollisionObject> collisionObjects = new List<CollisionObject>();
         public List<Texture> textures;
         public List<List<Texture>> armorTextures;
         public List<Texture> gadgetTextures;
@@ -43,6 +51,8 @@ namespace LibReplanetizer
         public byte[] renderDefBytes;
         public byte[] collBytesEngine;
         public List<byte[]> collBytesChunks;
+        // Indicates that collision geometry has been modified and needs reserialization
+        public bool collisionDirty;
         public byte[] billboardBytes;
         public byte[] soundConfigBytes;
 
@@ -74,6 +84,9 @@ namespace LibReplanetizer
         public List<LanguageData> italian;
         public List<LanguageData> japanese;
         public List<LanguageData> korean;
+
+        // Table of moby class headers used by RC2/RC3 mobys.
+        public List<GcMobyClassHeader> mobyClassHeaders = new List<GcMobyClassHeader>();
 
         public byte[] unk3;
         public byte[] unk4;
@@ -127,8 +140,6 @@ namespace LibReplanetizer
         {
 
             path = Path.GetDirectoryName(enginePath);
-
-            mobyModels = new List<Model>();
 
             // Engine elements
             using (EngineParser engineParser = new EngineParser(enginePath))
@@ -268,19 +279,84 @@ namespace LibReplanetizer
 
             terrainChunks = new List<Terrain>();
             collisionChunks = new List<Collision>();
+            collisionObjects = new List<CollisionObject>();
             collBytesChunks = new List<byte[]>();
 
-            for (int i = 0; i < 5; i++)
+            int chunkCount = levelVariables?.chunkCount ?? 0;
+            for (int i = 0; i < chunkCount; i++)
             {
-                string? chunkPath = Path.Join(path, @"chunk" + i + ".ps3");
-                if (!File.Exists(chunkPath)) continue;
+                string chunkPath = Path.Join(path, $"chunk{i}.ps3");
+                if (!File.Exists(chunkPath))
+                {
+                    LOGGER.Warn("Missing chunk file {0}", chunkPath);
+                    continue;
+                }
 
                 using (ChunkParser chunkParser = new ChunkParser(chunkPath, game))
                 {
+                    // Load both terrain and collision so the level state stays consistent.
                     terrainChunks.Add(chunkParser.GetTerrainModels());
                     collisionChunks.Add(chunkParser.GetCollisionModel());
                     collBytesChunks.Add(chunkParser.GetCollBytes());
                 }
+            }
+
+            // Ensure LevelVariables.chunkCount matches the actual number of chunks loaded.
+            if (levelVariables != null)
+            {
+                levelVariables.chunkCount = collisionChunks.Count;
+            }
+
+            // After loading, ensure the main 'collisionEngine' is consistent with the chunks for the editor's display.
+            if (collisionChunks.Count > 0)
+            {
+                var masterVerts = new List<float>();
+                var masterIndices = new List<uint>();
+                uint masterVertexOffset = 0;
+                foreach(var chunk in collisionChunks)
+                {
+                    if (chunk == null || chunk.vertexBuffer == null || chunk.indBuff == null) continue;
+                    masterVerts.AddRange(chunk.vertexBuffer);
+                    foreach(var index in chunk.indBuff)
+                    {
+                        masterIndices.Add(masterVertexOffset + index);
+                    }
+                    masterVertexOffset += (uint)(chunk.vertexBuffer.Length / 4);
+                }
+                // --- START OF FIX ---
+                // If the chunks produced no vertices, but the main engine collision has vertices,
+                // it means the chunk parsing failed. In this case, trust the main engine collision.
+                if (masterVerts.Count == 0 && collisionEngine != null && collisionEngine.vertexBuffer != null && collisionEngine.vertexBuffer.Length > 0)
+                {
+                    // The chunks are invalid/empty, but the main collision is good.
+                    // Clear the bad chunk data and use the main collision data instead.
+                    collisionChunks.Clear();
+                    collisionChunks.Add((Collision)collisionEngine);
+                    LOGGER.Warn("Loaded collision chunks were empty/invalid. Falling back to master collision engine data.");
+                    Console.WriteLine("Loaded collision chunks were empty/invalid. Falling back to master collision engine data.");
+                }
+                else
+                {
+                    // Rebuild the main engine object from the chunks to ensure a consistent state.
+                    collisionEngine = new Collision
+                    {
+                        vertexBuffer = masterVerts.ToArray(),
+                        indBuff = masterIndices.ToArray(),
+                        indexBuffer = masterIndices.ConvertAll(i => (ushort)i).ToArray()
+                    };
+                }
+                // --- END OF FIX ---
+            }
+
+            // Create editable wrappers for collision geometry so it can be manipulated
+            if (collisionChunks.Count > 0)
+            {
+                foreach (var chunk in collisionChunks)
+                    collisionObjects.Add(new CollisionObject(chunk));
+            }
+            else if (collisionEngine != null)
+            {
+                collisionObjects.Add(new CollisionObject((Collision)collisionEngine));
             }
 
             List<string> armorPaths = ArmorHeader.FindArmorFiles(game, enginePath);
@@ -292,7 +368,7 @@ namespace LibReplanetizer
                 LOGGER.Debug("Looking for armor data in {0}", armor);
                 List<Texture> tex;
                 MobyModel? model;
-                MobyModel? ratchet = (MobyModel?) mobyModels[0];
+                MobyModel? ratchet = (MobyModel?) mobyModels?[0];
                 using (ArmorParser parser = new ArmorParser(game, armor))
                 {
                     tex = parser.GetTextures();
@@ -405,6 +481,28 @@ namespace LibReplanetizer
             valid = true;
         }
 
+        // Minimal constructor for stub Level (for OBJ to RCC conversion)
+        public Level() {
+            valid = false;
+            path = null;
+            game = GameType.RaC1; // Default, not used
+            mobyModels = new List<Model>();
+            tieModels = new List<Model>();
+            shrubModels = new List<Model>();
+            gadgetModels = new List<Model>();
+            armorModels = new List<Model>();
+            collisionChunks = new List<Collision>();
+            collisionObjects = new List<CollisionObject>();
+            textures = new List<Texture>();
+            armorTextures = new List<List<Texture>>();
+            gadgetTextures = new List<Texture>();
+            terrainChunks = new List<Terrain>();
+            collBytesChunks = new List<byte[]>();
+            missions = new List<Mission>();
+            mobyloadModels = new List<List<MobyModel>>();
+            mobyloadTextures = new List<List<Texture>>();
+        }
+
         // Copies data like gadget models from gadget files etc into engine data.
         public void EmplaceCommonData()
         {
@@ -462,6 +560,89 @@ namespace LibReplanetizer
             });
         }
 
+        /// <summary>
+        /// Ensures that the collision data is serialized from the current collisionChunks (if present)
+        /// </summary>
+        public void UpdateCollisionBytesFromChunks()
+        {
+            // If nothing has modified the collision since the last save, keep the existing bytes.
+            if (!collisionDirty && collBytesEngine != null && collBytesEngine.Length > 0)
+            {
+                return;
+            }
+
+            // If collisionChunks are missing but collisionObjects exist (e.g. after editing),
+            // rebuild the chunk list from the editable collision objects so that any
+            // transformations are preserved when saving the level.
+            if ((collisionChunks == null || collisionChunks.Count == 0) &&
+                collisionObjects != null && collisionObjects.Count > 0)
+            {
+                collisionChunks = new List<Collision>();
+                foreach (var obj in collisionObjects)
+                {
+                    if (obj?.model != null)
+                        collisionChunks.Add(obj.model);
+                }
+            }
+
+            if (collisionChunks == null || collisionChunks.Count == 0)
+            {
+                // If there's still no collision, create a default empty header.
+                collBytesEngine = new byte[] { 0,0,0,0x10, 0,0,0,0, 0,0,0,0, 0,0,0,0 };
+                collBytesChunks = new List<byte[]>(); // Ensure this is cleared too
+                collisionDirty = false;
+                return;
+            }
+
+            // --- Serialize each chunk to collBytesChunks ---
+            collBytesChunks = new List<byte[]>();
+            foreach (var chunk in collisionChunks)
+            {
+                if (chunk == null || chunk.vertexBuffer == null || chunk.indBuff == null) {
+                    collBytesChunks.Add(new byte[0]);
+                    continue;
+                }
+                // --- AFTER (Explicitly provide the collision type) ---
+                collBytesChunks.Add(DataFunctions.SerializeCollisionToRccChunked(chunk,
+                    (faceIndex) => (CollisionType)31)); // CollisionType.Ground
+            }
+
+            // --- Combine all chunks into a single master collision object before serializing. ---
+            var combinedVerts = new List<float>();
+            var combinedInds = new List<uint>();
+            uint vertexOffset = 0;
+
+            foreach (var chunk in collisionChunks)
+            {
+                if (chunk == null || chunk.vertexBuffer == null || chunk.indBuff == null) continue;
+
+                combinedVerts.AddRange(chunk.vertexBuffer);
+                foreach (var index in chunk.indBuff)
+                {
+                    combinedInds.Add(vertexOffset + index);
+                }
+                vertexOffset += (uint)(chunk.vertexBuffer.Length / 4); // Each vertex is 4 floats (XYZW)
+            }
+
+            if (combinedVerts.Count == 0)
+            {
+                collBytesEngine = new byte[] { 0,0,0,0x10, 0,0,0,0, 0,0,0,0, 0,0,0,0 };
+                collisionDirty = false;
+                return;
+            }
+
+            var masterCollision = new Models.Collision
+            {
+                vertexBuffer = combinedVerts.ToArray(),
+                indBuff = combinedInds.ToArray()
+            };
+
+            // Now, serialize the single master object.
+            collBytesEngine = DataFunctions.SerializeCollisionToRccChunked(masterCollision,
+                (faceIndex) => (CollisionType)31); // CollisionType.Ground
+            collisionDirty = false;
+        }
+
         public void Save(string outputFile)
         {
             string? directory;
@@ -476,15 +657,39 @@ namespace LibReplanetizer
 
             if (directory == null) return;
 
+            // --- CRITICAL PATCH: Update collision bytes before saving ---
+            UpdateCollisionBytesFromChunks();
+
+            // --- SAFETY PATCH: Only save chunk files when terrain chunks are present ---
+            int chunkCount = terrainChunks?.Count ?? 0;
+            if (levelVariables != null)
+                levelVariables.chunkCount = chunkCount;
+
+            if (chunkCount > 0)
+            {
+                if (collisionChunks == null) collisionChunks = new List<Collision>();
+                if (collisionObjects == null) collisionObjects = new List<CollisionObject>();
+                if (collBytesChunks == null) collBytesChunks = new List<byte[]>();
+                for (int i = collisionChunks.Count; i < chunkCount; i++)
+                    collisionChunks.Add(new Collision());
+                for (int i = collisionObjects.Count; i < chunkCount; i++)
+                    collisionObjects.Add(new CollisionObject(new Collision()));
+                for (int i = collBytesChunks.Count; i < chunkCount; i++)
+                    collBytesChunks.Add(new byte[0]);
+            }
+
             EngineSerializer engineSerializer = new EngineSerializer();
             engineSerializer.Save(this, directory);
             GameplaySerializer gameplaySerializer = new GameplaySerializer();
             gameplaySerializer.Save(this, directory);
 
-            for (int i = 0; i < terrainChunks.Count; i++)
+            if (chunkCount > 0)
             {
-                ChunkSerializer chunkSerializer = new ChunkSerializer();
-                chunkSerializer.Save(this, directory, i);
+                for (int i = 0; i < chunkCount; i++)
+                {
+                    ChunkSerializer chunkSerializer = new ChunkSerializer();
+                    chunkSerializer.Save(this, directory, i);
+                }
             }
         }
     }

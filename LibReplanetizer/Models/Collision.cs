@@ -34,10 +34,30 @@ namespace LibReplanetizer.Models
         public uint[] indBuff = { };
         public uint[] colorBuff = { };
 
+        public Collision()
+        {
+        }
+
+        public Collision Clone()
+        {
+            var clone = new Collision();
+            clone.indBuff = (uint[]) indBuff.Clone();
+            clone.colorBuff = (uint[]) colorBuff.Clone();
+            clone.vertexBuffer = (float[]) vertexBuffer.Clone();
+            clone.indexBuffer = new ushort[indBuff.Length];
+            for (int i = 0; i < indBuff.Length; i++)
+            {
+                clone.indexBuffer[i] = (ushort) indBuff[i];
+            }
+            return clone;
+        }
+
         public Collision(FileStream fs, int collisionPointer)
         {
-            // RaC 1 title screen has no collision
-            if (collisionPointer == 0) return;
+            // Some standalone RCC files store the collision header at
+            // offset zero. Only skip parsing when the stream is actually
+            // empty so pointer 0 can still be used for real data.
+            if (collisionPointer == 0 && fs.Length == 0) return;
 
             float div = 1024f;
 
@@ -54,8 +74,8 @@ namespace LibReplanetizer.Models
 
             var vertexList = new List<float>();
             var indexList = new List<uint>();
-            var colorList = new List<uint>();
 
+            if (collision.Length < 4) return; // Defensive: not enough data
             ushort zShift = ReadUshort(collision, 0);
             ushort zCount = ReadUshort(collision, 2);
 
@@ -63,39 +83,51 @@ namespace LibReplanetizer.Models
 
             for (int z = 0; z < zCount; z++)
             {
-                int yOffset = ReadInt(collision, (z * 4) + 0x04);
-                if (yOffset == 0) continue;
+                int yOffsetIdx = (z * 4) + 0x04;
+                if (yOffsetIdx + 3 >= collision.Length) continue;
+                int yOffset = ReadInt(collision, yOffsetIdx);
+                if (yOffset <= 0 || yOffset + 3 > collision.Length) continue;
 
                 ushort yShift = ReadUshort(collision, yOffset + 0);
                 ushort yCount = ReadUshort(collision, yOffset + 2);
 
                 for (int y = 0; y < yCount; y++)
                 {
-                    int xOffset = ReadInt(collision, yOffset + (y * 4) + 0x04);
-                    if (xOffset == 0) continue;
+                    int xOffsetIdx = yOffset + (y * 4) + 0x04;
+                    if (xOffsetIdx + 3 >= collision.Length) continue;
+                    int xOffset = ReadInt(collision, xOffsetIdx);
+                    if (xOffset <= 0 || xOffset + 3 > collision.Length) continue;
 
                     ushort xShift = ReadUshort(collision, xOffset + 0);
                     ushort xCount = ReadUshort(collision, xOffset + 2);
 
                     for (int x = 0; x < xCount; x++)
                     {
-                        int vOffset = ReadInt(collision, xOffset + (x * 4) + 4);
-                        if (vOffset == 0) { continue; }
-
+                        int vOffsetIdx = xOffset + (x * 4) + 4;
+                        if (vOffsetIdx + 3 >= collision.Length) continue;
+                        int vOffset = ReadInt(collision, vOffsetIdx);
+                        if (vOffset <= 0 || vOffset + 3 > collision.Length) continue;
                         ushort faceCount = ReadUshort(collision, vOffset);
-                        byte vertexCount = collision[vOffset + 2];
-                        byte rCount = collision[vOffset + 3];
+                        byte vertexCount = vOffset + 2 < collision.Length ? collision[vOffset + 2] : (byte)0;
+                        byte rCount = vOffset + 3 < collision.Length ? collision[vOffset + 3] : (byte)0;
+
+                        if (vertexCount == 0) { continue; }
+                        if (vOffset + 4 + (12 * vertexCount) > collision.Length) continue; // Defensive: vertex data out of bounds
 
                         byte[] collisionType = new byte[vertexCount];
+
+                        // Gather indices and collision types
                         for (int f = 0; f < faceCount; f++)
                         {
-
                             int fOffset = vOffset + 4 + (12 * vertexCount) + (f * 4);
+                            if (fOffset + 3 >= collision.Length) { continue; }
 
                             byte b0 = collision[fOffset];
                             byte b1 = collision[fOffset + 1];
                             byte b2 = collision[fOffset + 2];
                             byte b3 = collision[fOffset + 3];
+
+                            if (b0 >= vertexCount || b1 >= vertexCount || b2 >= vertexCount) continue; // Defensive: index out of bounds
 
                             collisionType[b0] = b3;
                             collisionType[b1] = b3;
@@ -111,43 +143,40 @@ namespace LibReplanetizer.Models
                             if (f < rCount)
                             {
                                 int rOffset = vOffset + 4 + (12 * vertexCount) + (faceCount * 4) + f;
-                                uint f4 = totalVertexCount + collision[rOffset];
-                                indexList.Add(f1);
-                                indexList.Add(f3);
-                                indexList.Add(f4);
-                                collisionType[collision[rOffset]] = b3;
-                            }
-
-                            for (int v = 0; v < vertexCount; v++)
-                            {
-                                int pOffset = vOffset + (12 * v) + 4;
-                                vertexList.Add(ReadFloat(collision, pOffset + 0) / div + 4 * (xShift + x + 0.5f));  //Vertex X
-                                vertexList.Add(ReadFloat(collision, pOffset + 4) / div + 4 * (yShift + y + 0.5f));  //Vertex Y
-                                vertexList.Add(ReadFloat(collision, pOffset + 8) / div + 4 * (zShift + z + 0.5f));  //Vertex Z
-
-                                /*
-                                switch (collisionType[v])
+                                if (rOffset < collision.Length)
                                 {
-                                    case 0x1F:
-                                        fc.r = 255; fc.g = 0; fc.b = 0;
-                                        break;
+                                    byte rv = collision[rOffset];
+                                    if (rv >= vertexCount)
+                                    {
+                                        rv = (byte)(rv % vertexCount);
+                                    }
 
-                                    default:
-                                        fc.r = 0;
-                                        fc.g = 0;
-                                        fc.b = 0;
-                                        break;
+                                    uint f4 = totalVertexCount + rv;
+                                    indexList.Add(f1);
+                                    indexList.Add(f3);
+                                    indexList.Add(f4);
+                                    collisionType[rv] = b3;
                                 }
-                                */
-
-                                // Colorize different types of collision without knowing what they are
-                                fc.r = (byte) ((collisionType[v] & 0x03) << 6);
-                                fc.g = (byte) ((collisionType[v] & 0x0C) << 4);
-                                fc.b = (byte) (collisionType[v] & 0xF0);
-
-                                vertexList.Add(fc.value);
-                                totalVertexCount++;
                             }
+                        }
+
+                        // Parse vertex positions once after gathering indices
+                        for (int v = 0; v < vertexCount; v++)
+                        {
+                            int pOffset = vOffset + (12 * v) + 4;
+                            if (pOffset + 8 >= collision.Length) { continue; }
+
+                            vertexList.Add(ReadFloat(collision, pOffset + 0) / div + 4 * (xShift + x + 0.5f));  //Vertex X
+                            vertexList.Add(ReadFloat(collision, pOffset + 4) / div + 4 * (yShift + y + 0.5f));  //Vertex Y
+                            vertexList.Add(ReadFloat(collision, pOffset + 8) / div + 4 * (zShift + z + 0.5f));  //Vertex Z
+
+                            // Colorize different types of collision without knowing what they are
+                            fc.r = (byte)((collisionType[v] & 0x03) << 6);
+                            fc.g = (byte)((collisionType[v] & 0x0C) << 4);
+                            fc.b = (byte)(collisionType[v] & 0xF0);
+
+                            vertexList.Add(fc.value);
+                            totalVertexCount++;
                         }
                     }
                 }

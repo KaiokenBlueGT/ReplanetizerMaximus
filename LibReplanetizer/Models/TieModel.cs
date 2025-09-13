@@ -5,8 +5,11 @@
 // either version 3 of the License, or (at your option) any later version.
 // Please see the LICENSE.md file for more details.
 
+using System;
+using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using OpenTK.Mathematics;
 using static LibReplanetizer.DataFunctions;
 
 namespace LibReplanetizer.Models
@@ -69,6 +72,8 @@ namespace LibReplanetizer.Models
 
             //Get index buffer ushort[i] * faceCount
             indexBuffer = GetIndices(fs, indexPointer, indexCount);
+
+            ValidateCullingData();
         }
 
         public byte[] SerializeHead(int offStart)
@@ -131,5 +136,68 @@ namespace LibReplanetizer.Models
 
             return outBytes;
         }
+
+        /// <summary>
+        /// Ensures the model has valid culling bounds. When bounds are missing the
+        /// method calculates a bounding sphere from the vertex buffer. Calculated
+        /// bounds are cached so subsequent loads of the same model do not need to
+        /// recompute them.
+        /// </summary>
+        public void ValidateCullingData()
+        {
+            bool invalid =
+                float.IsNaN(cullingX) || float.IsNaN(cullingY) || float.IsNaN(cullingZ) ||
+                float.IsNaN(cullingRadius) || cullingRadius == 0.0f;
+
+            if (!invalid || vertexBuffer.Length == 0)
+            {
+                return;
+            }
+
+            // Check cache first to avoid recomputation for identical models
+            if (CullingCache.TryGetValue(id, out var cached))
+            {
+                cullingX = cached.center.X;
+                cullingY = cached.center.Y;
+                cullingZ = cached.center.Z;
+                cullingRadius = cached.radius;
+                return;
+            }
+
+            Vector3 min = new Vector3(float.MaxValue);
+            Vector3 max = new Vector3(float.MinValue);
+            for (int i = 0; i < vertexBuffer.Length; i += vertexStride)
+            {
+                var v = new Vector3(vertexBuffer[i], vertexBuffer[i + 1], vertexBuffer[i + 2]);
+                min = Vector3.ComponentMin(min, v);
+                max = Vector3.ComponentMax(max, v);
+            }
+
+            Vector3 center = (min + max) * 0.5f;
+
+            float radius = 0.0f;
+            for (int i = 0; i < vertexBuffer.Length; i += vertexStride)
+            {
+                var v = new Vector3(vertexBuffer[i], vertexBuffer[i + 1], vertexBuffer[i + 2]);
+                float dist = (v - center).LengthSquared;
+                if (dist > radius * radius)
+                {
+                    radius = MathF.Sqrt(dist);
+                }
+            }
+
+            cullingX = center.X;
+            cullingY = center.Y;
+            cullingZ = center.Z;
+            cullingRadius = radius;
+
+            // Cache the result so we don't recompute it for the same model again
+            CullingCache[id] = (center, radius);
+
+            Console.WriteLine($"[TieModel] Fallback culling computed for model {id}: center=({cullingX}, {cullingY}, {cullingZ}), radius={cullingRadius}");
+        }
+
+        private static readonly Dictionary<int, (Vector3 center, float radius)> CullingCache
+            = new Dictionary<int, (Vector3 center, float radius)>();
     }
 }

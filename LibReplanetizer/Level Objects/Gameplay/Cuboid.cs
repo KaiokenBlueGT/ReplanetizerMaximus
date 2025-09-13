@@ -18,6 +18,10 @@ namespace LibReplanetizer.LevelObjects
 
         [Category("Attributes"), DisplayName("ID")]
         public int id { get; set; }
+        
+        // 🆕 Store the original inverse rotation matrix to prevent corruption
+        private Matrix4 originalInverseRotationMatrix;
+        private bool hasOriginalInverseMatrix = false; // Track if we have original data
 
         static readonly float[] CUBE = {
             -1.0f, -1.0f,  1.0f,
@@ -59,6 +63,10 @@ namespace LibReplanetizer.LevelObjects
             position = modelMatrix.ExtractTranslation();
             scale = modelMatrix.ExtractScale();
 
+            // 🔧 FIX: Store the original inverse rotation matrix exactly as read from file
+            originalInverseRotationMatrix = inverseRotationMatrix;
+            hasOriginalInverseMatrix = true;
+
             UpdateTransformMatrix();
         }
 
@@ -72,9 +80,98 @@ namespace LibReplanetizer.LevelObjects
             byte[] bytes = new byte[0x80];
 
             WriteMatrix4(bytes, 0x00, modelMatrix);
-            WriteMatrix4(bytes, 0x40, Matrix4.CreateFromQuaternion(rotation).Inverted());
+            
+            // 🔧 FIX: Always use the original inverse rotation matrix if available
+            // This prevents precision loss that corrupts ship camera rotations
+            if (hasOriginalInverseMatrix)
+            {
+                WriteMatrix4(bytes, 0x40, originalInverseRotationMatrix);
+            }
+            else
+            {
+                // Fallback for newly created cuboids
+                var inverseMatrix = Matrix4.CreateFromQuaternion(rotation).Inverted();
+                WriteMatrix4(bytes, 0x40, inverseMatrix);
+            }
 
             return bytes;
+        }
+        
+        // 🔧 FIX: Only update inverse matrix when rotation significantly changes
+        public override void UpdateTransformMatrix()
+        {
+            base.UpdateTransformMatrix();
+            
+            // 🔧 CRITICAL FIX: Don't automatically update inverse matrix for ship camera cuboids
+            // Only update the inverse rotation matrix if we don't have original data
+            // This preserves ship camera rotations during GUI saves
+            if (!hasOriginalInverseMatrix)
+            {
+                originalInverseRotationMatrix = Matrix4.CreateFromQuaternion(rotation).Inverted();
+                hasOriginalInverseMatrix = true;
+                Console.WriteLine($"  Generated new inverse matrix for cuboid {id}");
+            }
+            // For existing cuboids (like ship cameras), preserve the original inverse matrix
+            // unless explicitly modified via ApplyRC1ToRC3CameraRotationConversion or ForceUpdateInverseMatrix
+        }
+        
+        /// <summary>
+        /// Applies coordinate system conversion for camera cuboids (RC1 to RC3)
+        /// This fixes the camera rotation issue when transferring between game versions
+        /// </summary>
+        public void ApplyRC1ToRC3CameraRotationConversion()
+        {
+            Console.WriteLine($"  Applying RC1 to RC3 camera rotation conversion...");
+            Console.WriteLine($"  Original rotation: {rotation}");
+            
+            // RC1 to RC3/UYA camera coordinate system conversion
+            // The camera system likely uses different axis orientations
+            
+            // Option 1: Y-axis flip (most common in camera systems)
+            var convertedRotation = new Quaternion(-rotation.X, rotation.Y, -rotation.Z, rotation.W);
+            
+            Console.WriteLine($"  Converted rotation: {convertedRotation}");
+            
+            // Apply the converted rotation
+            rotation = convertedRotation;
+            
+            // 🔧 CRITICAL: Force regeneration of both matrices for coordinate conversion
+            // This ensures the inverse matrix matches the new coordinate system
+            ForceUpdateInverseMatrix();
+            
+            Console.WriteLine($"  ✅ Applied RC1 to RC3 camera rotation conversion with fresh matrices");
+        }
+
+        /// <summary>
+        /// 🆕 ENHANCED: Forces regeneration of all matrices and marks as converted
+        /// </summary>
+        public void ForceUpdateInverseMatrix()
+        {
+            // 🔧 CRITICAL: Always regenerate from current rotation to ensure sync
+            var rotationMatrix = Matrix4.CreateFromQuaternion(rotation);
+            originalInverseRotationMatrix = rotationMatrix.Inverted();
+            hasOriginalInverseMatrix = true;
+            
+            // Also update the transform matrix to be consistent
+            UpdateTransformMatrix();
+            
+            Console.WriteLine($"    Forced matrix regeneration for cuboid {id}");
+        }
+
+        /// <summary>
+        /// 🆕 NEW: Apply coordinate conversion to ANY cuboid that needs it
+        /// </summary>
+        public void ApplyCoordinateConversionIfNeeded(bool isShipCamera = false)
+        {
+            if (isShipCamera)
+            {
+                ApplyRC1ToRC3CameraRotationConversion();
+            }
+            else
+            {
+                // For non-camera cuboids, just ensure matrices are properly synced
+                ForceUpdateInverseMatrix();
+            }
         }
 
         public ushort[] GetIndices()

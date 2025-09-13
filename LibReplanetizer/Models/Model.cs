@@ -292,11 +292,33 @@ namespace LibReplanetizer.Models
             for (int i = 0; i < indexCount; i++)
             {
                 ushort face = ReadUshort(indexBlock, i * sizeof(ushort));
-                indexBuffer[i] = (ushort) (face - offset);
+                int value = face - offset;
+                if (value < 0 || value > ushort.MaxValue)
+                {
+                    // Clamp to valid range and log warning
+                    System.Diagnostics.Debug.WriteLine($"[GetIndices] Index out of range: face={face}, offset={offset}, value={value}, clamped to {(value < 0 ? 0 : ushort.MaxValue)}");
+                    value = Math.Clamp(value, 0, ushort.MaxValue);
+                }
+                indexBuffer[i] = (ushort)value;
             }
 
             return indexBuffer;
         }
+
+        public enum PrimitiveType
+        {
+            None = 0,
+            Points = 1,
+            Lines = 2,
+            LineLoop = 3,
+            LineStrip = 4,
+            Triangles = 5,
+            TriangleStrip = 6,
+            TriangleFan = 7,
+            Quads = 8
+        }
+
+        public PrimitiveType primitiveType { get; set; } = PrimitiveType.Triangles;
 
     }
 }

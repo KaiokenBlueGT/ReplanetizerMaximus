@@ -820,5 +820,18 @@ namespace LibReplanetizer
                 }
             }
         }
+
+        /// <summary>
+        /// Writes a standalone collision model to an OBJ file.
+        /// </summary>
+        /// <param name="fileName">Destination OBJ path.</param>
+        /// <param name="collision">Collision model to export.</param>
+        public void ExportCollision(string fileName, Collision collision)
+        {
+            using (StreamWriter objfs = new StreamWriter(fileName))
+            {
+                WriteDataCollision(objfs, collision, 0);
+            }
+        }
     }
 }

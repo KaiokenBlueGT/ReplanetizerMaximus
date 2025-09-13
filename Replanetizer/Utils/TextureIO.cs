@@ -11,6 +11,7 @@ using System.IO;
 using LibReplanetizer;
 using LibReplanetizer.Models;
 using SixLabors.ImageSharp.Formats.Png;
+using SixLabors.ImageSharp.PixelFormats;
 
 namespace Replanetizer.Utils
 {
@@ -112,6 +113,23 @@ namespace Replanetizer.Utils
                     ExportTexture(textures[j], Path.Join(path, $"mobyload_{i}_{j}.png"), true);
                 }
             }
+        }
+
+        public static Texture ImportTexture(string path, int id)
+        {
+            // Load PNG as BGRA32
+            using var image = Image.Load<Bgra32>(path);
+            int width = image.Width;
+            int height = image.Height;
+            byte[] data = new byte[width * height * 4];
+
+            // Copy pixel data in BGRA order
+            image.CopyPixelDataTo(data);
+
+            // Create Texture object
+            var texture = new Texture(id, (short)width, (short)height, data);
+            texture.img = image.Clone(); // Optionally keep the loaded image
+            return texture;
         }
     }
 }

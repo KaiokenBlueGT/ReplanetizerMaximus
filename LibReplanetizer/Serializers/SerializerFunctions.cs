@@ -37,17 +37,19 @@ namespace LibReplanetizer.Serializers
 
         public static void SeekPast(FileStream fs)
         {
-            while (fs.Position % 0x10 != 0)
+            long mod = fs.Position % 0x10;
+            if (mod != 0)
             {
-                fs.Seek(2, SeekOrigin.Current);
+                fs.Seek(0x10 - mod, SeekOrigin.Current);
             }
         }
 
         public static void SeekPast4(FileStream fs)
         {
-            while (fs.Position % 0x4 != 0)
+            long mod = fs.Position % 0x4;
+            if (mod != 0)
             {
-                fs.Seek(2, SeekOrigin.Current);
+                fs.Seek(0x4 - mod, SeekOrigin.Current);
             }
         }
 
@@ -84,6 +86,12 @@ namespace LibReplanetizer.Serializers
                 if (((vertBytes[chunk].Count + modelVertBytes.Length) / 0x1c) > 0xffff)
                 {
                     chunk++;
+                    if (chunk >= 4)
+                    {
+                        // Prevent out-of-range error, log and skip remaining fragments
+                        System.Diagnostics.Debug.WriteLine($"[WriteTfrags] Too many terrain chunks required (fragment {i}). Skipping remaining fragments.");
+                        break;
+                    }
                 }
 
                 WriteUshort(tfragHeads, offset + 0x18, (ushort) (vertBytes[chunk].Count / 0x1c));

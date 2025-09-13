@@ -67,15 +67,11 @@ namespace Replanetizer.Renderer
             skyRenderer.Include(level.skybox);
 
             collisionRenderer = new CollisionRenderer(shaderTable);
-            if (level.collisionChunks.Count > 0)
+            if (level.collisionObjects.Count > 0)
             {
-                collisionRenderer.Include(level.collisionChunks);
+                collisionRenderer.Include(level.collisionObjects);
             }
-            else
-            {
-                collisionRenderer.Include(level.collisionEngine);
-            }
-
+        
             foreach (Moby mob in level.mobs)
             {
                 MeshRenderer mobRenderer = new MeshRenderer(shaderTable, textures, textureIDs);

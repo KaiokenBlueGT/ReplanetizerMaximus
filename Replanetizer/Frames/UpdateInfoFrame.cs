@@ -165,8 +165,18 @@ Link: ", buildDate.ToString(), currVersionDate.ToString(), diff?.Days, diff?.Hou
 
         public static async void CheckForNewVersion(Window wnd)
         {
-            //Builtin only exists during building, your IDE may complain
-            DateTime compileTime = new DateTime(Builtin.CompileTime, DateTimeKind.Utc);
+            // Handle the Builtin.CompileTime which is only available during build
+            DateTime compileTime;
+            try
+            {
+                // Builtin only exists during building, your IDE may complain
+                compileTime = new DateTime(Builtin.CompileTime, DateTimeKind.Utc);
+            }
+            catch
+            {
+                // Fallback for when Builtin class doesn't exist (during development)
+                compileTime = DateTime.UtcNow;
+            }
 
             try
             {

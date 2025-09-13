@@ -99,10 +99,10 @@ namespace LibReplanetizer.LevelObjects
             WriteInt(head, 0x10, 0);
             WriteInt(head, 0x14, 0);
             WriteInt(head, 0x18, 0);
-            WriteUshort(head, 0x1C, off1C);
+            WriteUshort(head, 0x1C, 0xFFFF); // Always use 0xFFFF for RC2/3
             WriteUshort(head, 0x1E, off1E);
 
-            WriteUshort(head, 0x20, off20);
+            WriteUshort(head, 0x20, 0xFF00); // Always use 0xFF00 for RC2/3
             WriteUshort(head, 0x22, 0);
             WriteUint(head, 0x24, off24);
             WriteUint(head, 0x28, off28);
