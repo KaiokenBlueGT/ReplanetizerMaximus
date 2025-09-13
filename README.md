@@ -2,10 +2,10 @@
 <h1>
 <p align="center">
   <img src="media/ReplanetizerIcon500px.ico" alt="Logo" width="110" height="110" title="Logo made by Nooga.">
-  <p align="center" style="font-weight: bold">Replanetizer</p>
+  <p align="center" style="font-weight: bold">Replanetizer Maximus</p>
 </h1>
   <p align="center">
-    Level Editor for the Ratchet and Clank Collection on PS3
+    Level Editor for the Ratchet and Clank Collection on PS3 **(with additional features!)**
     <br />
     </p>
 </p>
@@ -19,10 +19,26 @@
 </p>
 
 <p align="center">
-  <img src="media/preview.gif" alt="Preview">
+  <img src="media/image.png" alt="Preview">
 </p>
 
-# Features
+# New Features
+
+This fork adds new experimental tools and features on top of the original Replanetizer:
+
+- **.OBJ Terrain Importing**  
+  Import `.obj` 3D models directly as terrain for your levels.
+  _Primarily tested with Up Your Arsenal (R&C3). Going Commando (R&C2) has NOT been tested._
+
+- **Texture Management**  
+  - Delete textures directly from the Texture Viewer window.  
+  - Replace existing textures from the Texture Viewer window.  
+
+- **GeometrySwapper (WIP)**  
+  Early GUI implementation for swapping/converting R&C1 levels to R&C2 (Going Commando) or R&C3 (Up Your Arsenal).
+  Currently **very** experimental but allows basic R&C1 level playability inside GC/UYA.
+
+# Features (Original Replanetizer)
 
 Replanetizer is still in an early state of development. Its feature set entails:
 
