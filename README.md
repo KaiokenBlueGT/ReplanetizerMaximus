@@ -10,12 +10,12 @@
     </p>
 </p>
 <p align="center">
-  <a href="#features">Features</a> •
-  <a href="#usage">Usage</a> •
-  <a href="#building">Building</a> •
-  <a href="#technology">Technology</a> •
-  <a href="#licensing">Licensing</a> •
-  <a href="CONTRIBUTING.md">Contributing</a>
+    <a href="#features">Features</a> •
+    <a href="#usage">Usage</a> •
+    <a href="#building">Building</a> •
+    <a href="#technology">Technology</a> •
+    <a href="#licensing">Licensing</a> •
+    <a href="CONTRIBUTING.md">Contributing</a>
 </p>
 
 <p align="center">
@@ -63,9 +63,9 @@ Support for Ratchet Deadlocked is available but low priority.
 
 # Binaries
 
-You can find prebuilt binaries of Replanetizer in the releases section:
+You can find prebuilt binaries of Replanetizer Maximus in the releases section:
 
-- [Release Builds](https://github.com/RatchetModding/Replanetizer/releases)
+- [Release Builds](https://github.com/KaiokenBlueGT/ReplanetizerMaximus/releases) 
 
 # Usage
 
